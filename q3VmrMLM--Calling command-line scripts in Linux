@@ -1,0 +1,142 @@
+#!/bin/bash  
+
+# 脚本名称: q3VmrMLM  
+
+# 解析命令行参数  
+while [[ $# -gt 0 ]]; do  
+    case $1 in  
+        -dir) dir="$2"; shift ;;  
+        -fileGen) fileGen="$2"; shift ;;  
+        -filePhe) filePhe="$2"; shift ;;  
+        -fileKin) fileKin="$2"; shift ;;  
+        -filePS) filePS="$2"; shift ;;  
+        -PopStrType) PopStrType="$2"; shift ;;  
+        -fileCov) fileCov="$2"; shift ;;  
+        -method) method="$2"; shift ;;  
+        -trait) trait="$2"; shift ;;  
+        -n_en) n_en="$2"; shift ;;  
+        -SearchRadius) SearchRadius="$2"; shift ;;  
+        -CriLOD) CriLOD="$2"; shift ;;  
+        -svpal) svpal="$2"; shift ;;  
+        -DrawPlot) DrawPlot="$2"; shift ;;  
+        -Plotformat) Plotformat="$2"; shift ;;  
+        *) echo "未知参数: $1"; exit 1 ;;  
+    esac  
+    shift  
+done  
+
+# 检查必要参数  
+if [[ -z "$dir" || -z "$fileGen" || -z "$filePhe" || -z "$method" ]]; then  
+    echo "错误: 必须提供 -dir, -fileGen, -filePhe 和 -method 参数。"  
+    exit 1  
+fi  
+
+# 构造完整的文件路径  
+plink_path="$dir/$fileGen"  
+phenotype_path="$dir/$filePhe"  
+
+fileKin=${fileKin:-NULL}  
+filePS=${filePS:-NULL}  
+PopStrType=${PopStrType:-NULL}  
+fileCov=${fileCov:-NULL}  
+trait=${trait:-1}  
+n_en=${n_en:-1}  
+SearchRadius=${SearchRadius:-0}  
+CriLOD=${CriLOD:-3}  
+svpal=${svpal:-0.01}  
+DrawPlot=${DrawPlot:-TRUE}  
+Plotformat=${Plotformat:-'pdf'}  
+
+# 检查文件路径  
+if [[ "$fileKin" != "NULL" ]]; then  
+    fileKin="$dir/$fileKin"  
+fi  
+
+if [[ "$filePS" != "NULL" ]]; then  
+    filePS="$dir/$filePS"  
+fi  
+
+if [[ "$fileCov" != "NULL" ]]; then  
+    fileCov="$dir/$fileCov"  
+fi  
+
+# 打印所有变量的值  
+echo "dir: $dir"  
+echo "fileGen: $plink_path"  
+echo "filePhe: $phenotype_path"  
+echo "fileKin: $fileKin"  
+echo "filePS: $filePS"  
+echo "fileCov: $fileCov"  
+echo "method: '$method'"  
+echo "trait: $trait"  
+echo "n.en: $n_en"  
+echo "SearchRadius: $SearchRadius"  
+echo "CriLOD: $CriLOD"  
+echo "svpal: $svpal"  
+echo "DrawPlot: $DrawPlot"  
+echo "Plotformat: $Plotformat"  
+echo "PopStrType: $PopStrType"  
+
+# 检查并创建 Conda 环境  
+if ! conda info --envs | grep -q ldak_env; then  
+    echo "创建 LDAK 环境..."  
+    conda create -n ldak_env -c genomedk ldak6  
+else  
+    echo "LDAK 环境已存在，直接使用..."  
+fi  
+
+# 运行 LDAK  
+source activate ldak_env  
+ldak6 --thin "$dir/LDAK_result" --bfile "$plink_path" --window-prune 0.98 --window-kb 100  
+
+# 进入 R 环境并运行 Q3VMRMLM  
+conda deactivate  
+source activate r43   
+
+{  
+    Rscript -e "  
+    library(BEDMatrix)  
+    library(bigmemory)  
+    library(Rcpp)  
+    library(progress)  
+    library(doParallel)  
+    library(MASS)  
+    library(data.table)  
+    library(lars)  
+    library(openxlsx)  
+    library(quantreg)  
+    library(MORST)  
+    library(bivas)  
+    library(RcppEigen)  
+    library(RcppArmadillo)  
+    library(matrixStats)  
+    library(doFuture)  
+    library(gaston)  
+    library(collapse)  
+    library(bigstatsr)  
+    library(qIIIVmrMLM);  
+    library(nnet)
+
+    fileKin <- if ('$fileKin' == 'NULL') NULL else '$fileKin'  
+    filePS <- if ('$filePS' == 'NULL') NULL else '$filePS'  
+    fileCov <- if ('$fileCov' == 'NULL') NULL else '$fileCov'  
+
+    # cat('fileKin:', '$fileKin', '\n')  
+    # cat(filePS,'\n' )   filePS为空  
+
+   # 进行打印以验证  
+    cat('fileKin:', fileKin, '\n')  
+    cat('filePS:', filePS, '\n')  
+    cat('fileCov:', fileCov, '\n')  
+
+    class(fileKin)  
+    class(filePS)  
+
+# 确定参数的传递  
+ qIIIVmrMLM(fileGen='$plink_path', fileSel='$dir/LDAK_result.in', filePhe='$phenotype_path',  
+              fileKin=fileKin, filePS=filePS, PopStrType='$PopStrType', fileCov=fileCov,  
+              method='$method', trait=$trait, n.en=$n_en,  
+              SearchRadius=$SearchRadius, CriLOD=$CriLOD, svpal=$svpal,  
+              DrawPlot=$DrawPlot, Plotformat='$Plotformat', dir='$dir/')   
+    "    
+} && echo "q3VmrMLM 运行完成." 
